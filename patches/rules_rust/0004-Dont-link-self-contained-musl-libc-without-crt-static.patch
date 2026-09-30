@@ -1,0 +1,48 @@
+From 687e11651d1fdfd258a3c8dc69b7d560bd6c862a Mon Sep 17 00:00:00 2001
+From: Max Brosnahan <mbrosnahan@cloudflare.com>
+Date: Tue, 29 Sep 2026 22:11:24 +0200
+Subject: [PATCH] Don't link musl's self-contained libc when crt-static is
+ disabled
+
+---
+ rust/private/rustc.bzl | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/rust/private/rustc.bzl b/rust/private/rustc.bzl
+index 39a9c3c..c2b16a1 100644
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -1301,8 +1301,15 @@ def construct_arguments(
+     # Tell Rustc where to find the standard library (or libcore). Use the
+     # underlying `File`s with a `map_each` so Bazel's path mapping
+     # (`--experimental_output_paths=strip`) can rewrite the dirnames.
++    rust_std = toolchain.rust_std
++    if _is_dynamic_musl(ctx, toolchain):
++        # Rust's musl standard library ships a `self-contained` directory with a static libc.a for
++        # fully static binaries. With `-crt-static` the system's shared libc must be linked
++        # instead, but with that directory on the search path `-lc` resolves to the static copy,
++        # so rustc-linked outputs get a second libc; proc-macros then crash when rustc loads them.
++        rust_std = [f for f in rust_std.to_list() if "/self-contained/" not in f.path]
+     rustc_flags.add_all(
+-        toolchain.rust_std,
++        rust_std,
+         before_each = "-L",
+         map_each = _get_dirname,
+         uniquify = True,
+@@ -3114,6 +3121,13 @@ def _get_crate_root_path(args):
+     else:
+         return file.path
+ 
++def _is_dynamic_musl(ctx, toolchain):
++    """Whether the toolchain targets musl with a dynamically linked C runtime (`-crt-static`)."""
++    if not toolchain.target_flag_value.endswith("-musl"):
++        return False
++    flags = toolchain.extra_exec_rustc_flags if is_exec_configuration(ctx) else toolchain.extra_rustc_flags
++    return any(["-crt-static" in flag for flag in flags])
++
+ def _get_dirname(file):
+     """A helper function for `_add_native_link_flags`.
+ 
+-- 
+2.55.0
+
