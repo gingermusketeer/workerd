@@ -1,0 +1,98 @@
+# Build environment for native musl (Alpine) builds of workerd.
+#
+# Everything workerd compiles (C++, Rust, including exec-config tools such as mksnapshot, capnp,
+# proc-macros and build scripts) is built against musl with Alpine's LLVM toolchain, plus libc++
+# built from source (see the libcxx stage).
+#
+# Several tools that Bazel downloads while building (hermetic Node.js and Python, cargo used by
+# crate_universe during repository fetching, formatters) are only published as glibc binaries. To
+# run those, the image also carries Debian's glibc runtime libraries in /opt/glibc/lib, found by
+# glibc's loader through /etc/ld.so.cache (which musl ignores). They are kept out of the standard
+# and multiarch library directories so that clang doesn't search them when linking.
+
+ARG ALPINE_IMAGE=docker.io/library/alpine:edge
+ARG DEBIAN_IMAGE=docker.io/library/debian:trixie-slim
+
+FROM ${DEBIAN_IMAGE} AS glibc
+# ldconfig runs against a staging root so that the cache lists only these libraries, not the musl
+# libraries in the final image's /lib and /usr/lib.
+RUN mkdir -p /stage/opt/glibc /stage/etc \
+ && cp -a /usr/lib/x86_64-linux-gnu /stage/opt/glibc/lib \
+ && echo /opt/glibc/lib > /stage/etc/ld.so.conf \
+ && ldconfig -r /stage
+
+FROM ${ALPINE_IMAGE} AS toolchain
+
+# Extra CA certificates, e.g. for a TLS-intercepting proxy. build.sh writes this file from
+# EXTRA_CA_BUNDLE, or leaves it empty.
+COPY extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt
+RUN cat /usr/local/share/ca-certificates/extra-ca.crt >> /etc/ssl/certs/ca-certificates.crt
+
+ARG LLVM_VERSION=22
+RUN echo "@testing https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories \
+ && apk add --no-cache \
+      bazel@testing \
+      clang${LLVM_VERSION} lld${LLVM_VERSION} llvm${LLVM_VERSION} \
+      gcc musl-dev linux-headers libucontext-dev \
+      bash coreutils curl diffutils file findutils git grep patch perl python3 sed tar \
+      tcl unzip xz zip zstd ca-certificates \
+ && update-ca-certificates \
+ && echo "build --config=linux_musl" > /etc/bazel.bazelrc
+
+ENV PATH=/usr/lib/llvm${LLVM_VERSION}/bin:$PATH \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt \
+    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# libc++ and libc++abi, built from the LLVM release matching clang. Alpine packages libc++ from a
+# different LLVM release, and its static archives are not position-independent, so they can't be
+# linked into the shared libraries Bazel builds for cc_library targets. As in the apt.llvm.org
+# packages used for glibc builds, libc++.a includes libc++abi.
+FROM toolchain AS libcxx
+ARG LLVM_RELEASE=22.1.8
+ARG LLVM_SHA256=922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888
+RUN apk add --no-cache cmake samurai \
+ && wget -q -O /tmp/llvm.tar.xz \
+      https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_RELEASE}/llvm-project-${LLVM_RELEASE}.src.tar.xz \
+ && echo "${LLVM_SHA256}  /tmp/llvm.tar.xz" | sha256sum -c - \
+ && mkdir /src && tar -xJf /tmp/llvm.tar.xz -C /src --strip-components=1 \
+      llvm-project-${LLVM_RELEASE}.src/cmake llvm-project-${LLVM_RELEASE}.src/libc \
+      llvm-project-${LLVM_RELEASE}.src/libcxx llvm-project-${LLVM_RELEASE}.src/libcxxabi \
+      llvm-project-${LLVM_RELEASE}.src/llvm/cmake llvm-project-${LLVM_RELEASE}.src/llvm/utils \
+      llvm-project-${LLVM_RELEASE}.src/runtimes llvm-project-${LLVM_RELEASE}.src/third-party \
+ && cmake -G Ninja -S /src/runtimes -B /build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+      -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+      -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
+      -DLLVM_INCLUDE_TESTS=OFF \
+      -DLIBCXX_HAS_MUSL_LIBC=ON \
+      -DLIBCXX_ENABLE_SHARED=ON -DLIBCXX_ENABLE_STATIC=ON \
+      -DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON \
+      -DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY=ON \
+      -DLIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY=ON \
+      -DLIBCXX_ENABLE_ABI_LINKER_SCRIPT=OFF \
+      -DLIBCXX_INCLUDE_BENCHMARKS=OFF -DLIBCXX_INCLUDE_TESTS=OFF \
+      -DLIBCXX_INSTALL_MODULES=OFF \
+      -DLIBCXXABI_ENABLE_SHARED=OFF -DLIBCXXABI_ENABLE_STATIC=ON \
+      -DLIBCXXABI_INCLUDE_TESTS=OFF \
+      -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
+ && DESTDIR=/install ninja -C /build install-cxx install-cxxabi
+
+FROM toolchain
+
+COPY --from=libcxx /install/ /
+
+# glibc runtime for Bazel-downloaded prebuilt host tools (see header comment).
+COPY --from=glibc /stage/opt/glibc /opt/glibc
+COPY --from=glibc /stage/etc/ld.so.cache /etc/ld.so.cache
+RUN mkdir -p /lib64 && ln -s /opt/glibc/lib/ld-linux-x86-64.so.2 /lib64/ld-linux-x86-64.so.2
+
+# Alpine's Bazel isn't the version in .bazelversion and resolves some modules differently, so it
+# must not rewrite MODULE.bazel.lock.
+RUN echo "common --lockfile_mode=off" >> /etc/bazel.bazelrc
+
+WORKDIR /workerd

@@ -422,6 +422,31 @@ build:linux --copt="-fdata-sections" --host_copt="-fdata-sections"
 # any improvement beyond 8 threads (see https://reviews.llvm.org/D147493).
 build:linux --linkopt="-Wl,--threads=8"
 
+# Native musl builds, run inside the Alpine image from build/musl/ (see build/musl/README.md), which
+# enables this config. The `linux` config still applies.
+build:linux_musl --platforms=//build/platforms:linux_x86_64_musl
+build:linux_musl --host_platform=//build/platforms:linux_x86_64_musl
+# The hermetic LLVM toolchain's sysroot and libc++ are glibc, so musl builds use the image's clang,
+# lld and libc++ through Bazel's autodetected toolchain, which takes precedence over it.
+build:linux_musl --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=0
+build:linux_musl --extra_toolchains=@local_config_cc_toolchains//:cc-toolchain-k8
+# Link libc++ statically, as the hermetic toolchain does. Drop the default link flags, which
+# include libstdc++. Host tools aren't distributed, so they link it dynamically.
+build:linux_musl --features=-default_link_libs --host_features=-default_link_libs
+build:linux_musl --cxxopt='-stdlib=libc++' --host_cxxopt='-stdlib=libc++'
+build:linux_musl --linkopt='-stdlib=libc++' --host_linkopt='-stdlib=libc++'
+build:linux_musl --linkopt='-l:libc++.a' --linkopt='-lm' --linkopt='-static-libgcc'
+build:linux_musl --host_linkopt='-lc++' --host_linkopt='-lm'
+build:linux_musl --linkopt='-fuse-ld=lld' --host_linkopt='-fuse-ld=lld'
+# musl lacks getcontext()/makecontext()/setcontext(), which KJ uses to start fibers (HTMLRewriter).
+build:linux_musl --linkopt='-l:libucontext.a'
+# musl sizes new thread stacks from PT_GNU_STACK (default 128 KiB); match glibc's usual 8 MiB.
+build:linux_musl --linkopt='-Wl,-z,stack-size=8388608'
+# tcmalloc's per-CPU caches register rseq for each thread and never unregister it. musl unmaps an
+# exiting detached thread's TLS, which holds the rseq area, before the thread is gone, so the kernel
+# faults updating it. Without rseq, tcmalloc uses per-thread caches.
+build:linux_musl --per_file_copt=external/tcmalloc@-DTCMALLOC_INTERNAL_PERCPU_USE_RSEQ=0
+
 #
 # Windows
 #

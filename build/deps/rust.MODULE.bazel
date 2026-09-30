@@ -37,7 +37,43 @@ use_repo(
     rust_nightly_macos_aarch64 = "rust_macos_aarch64__aarch64-apple-darwin__nightly_tools",
 )
 
-register_toolchains("@rust_toolchains//:all")
+# musl (Alpine) toolchain for `--config=linux_musl`. rustc itself must be musl to load proc-macros
+# built for the musl exec platform. rules_rust gives gnu and musl triples the same constraints, so
+# this toolchain is additionally constrained on //build/platforms:musl and registered ahead of
+# @rust_toolchains//:all, whose gnu toolchains would otherwise also match musl platforms.
+#
+# `-crt-static` is required: rustc cannot build proc-macros with a static CRT, and our Rust code is
+# linked into a dynamically linked C++ binary anyway.
+MUSL_RUSTC_FLAGS = [
+    "-Ctarget-feature=-crt-static",
+    "-Ctarget-feature=+sse4.2,+pclmulqdq",
+]
+
+rust.repository_set(
+    name = "rust_linux_x86_64_musl",
+    allocator_library = "@rules_rust//ffi/rs:empty",
+    edition = "2024",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@workerd//build/platforms:musl",
+    ],
+    exec_triple = "x86_64-unknown-linux-musl",
+    extra_exec_rustc_flags = MUSL_RUSTC_FLAGS,
+    extra_rustc_flags = MUSL_RUSTC_FLAGS,
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@workerd//build/platforms:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_STABLE_VERSION],
+)
+
+register_toolchains(
+    "@rust_toolchains//:rust_linux_x86_64_musl__x86_64-unknown-linux-musl__stable",
+    "@rust_toolchains//:all",
+)
 
 # rust-based lolhtml dependency, including the API header.
 # Presented as a separate repository to allow overrides.
