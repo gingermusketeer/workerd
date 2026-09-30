@@ -24,5 +24,4 @@ WebCrypto API + Node.js crypto C++ implementations over BoringSSL. `crypto.h` de
 | `spkac.h/c++`                                    | SPKAC/Netscape SPKI (Node.js compat)                                                                  |
 | `prime.h/c++`                                    | Prime generation/checking (Node.js compat)                                                            |
 | `crc-impl.h/c++`                                 | CRC32/CRC32C (non-crypto checksum)                                                                    |
-| `endianness.h/c++`                               | Byte-swap utilities                                                                                   |
 | `impl-test.c++`, `aes-test.c++`                  | C++ unit tests                                                                                        |

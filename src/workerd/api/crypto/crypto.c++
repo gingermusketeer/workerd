@@ -9,7 +9,6 @@
 #include "simdutf.h"
 
 #include <workerd/api/crypto/crc-impl.h>
-#include <workerd/api/crypto/endianness.h>
 #include <workerd/api/streams/standard.h>
 #include <workerd/api/util.h>
 #include <workerd/io/io-context.h>
@@ -22,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <set>
@@ -29,6 +29,15 @@
 
 namespace workerd::api {
 namespace {
+template <typename T>
+T hostToBigEndian(T value) {
+  if constexpr (std::endian::native == std::endian::little) {
+    return std::byteswap(value);
+  } else {
+    return value;
+  }
+}
+
 // BoringSSL does not tolerate null pointers even when the length is zero.
 // JsBufferSource::asArrayPtr() can return {nullptr, 0} for empty buffers,
 // so we ensure a non-null pointer before passing to OpenSSL.
@@ -1409,7 +1418,7 @@ class CRC32DigestContext final: public DigestContext {
   }
 
   jsg::JsArrayBuffer close(jsg::Lock& js) override {
-    auto beValue = htobe32(value);
+    auto beValue = hostToBigEndian(value);
     static_assert(sizeof(value) == sizeof(beValue), "CRC32 digest is not 32 bits?");
     kj::ArrayPtr<kj::byte> be(reinterpret_cast<kj::byte*>(&beValue), sizeof(beValue));
     return jsg::JsArrayBuffer::create(js, be);
@@ -1429,7 +1438,7 @@ class CRC32CDigestContext final: public DigestContext {
   }
 
   jsg::JsArrayBuffer close(jsg::Lock& js) override {
-    auto beValue = htobe32(value);
+    auto beValue = hostToBigEndian(value);
     static_assert(sizeof(value) == sizeof(beValue), "CRC32 digest is not 32 bits?");
     kj::ArrayPtr<kj::byte> be(reinterpret_cast<kj::byte*>(&beValue), sizeof(beValue));
     return jsg::JsArrayBuffer::create(js, be);
@@ -1449,7 +1458,7 @@ class CRC64NVMEDigestContext final: public DigestContext {
   }
 
   jsg::JsArrayBuffer close(jsg::Lock& js) override {
-    auto beValue = htobe64(value);
+    auto beValue = hostToBigEndian(value);
     static_assert(sizeof(value) == sizeof(beValue), "CRC64 digest is not 64 bits?");
     kj::ArrayPtr<kj::byte> be(reinterpret_cast<kj::byte*>(&beValue), sizeof(beValue));
     return jsg::JsArrayBuffer::create(js, be);
