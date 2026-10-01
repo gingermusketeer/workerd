@@ -17,11 +17,35 @@ export const knownPackages: Record<string, string> = {
   "darwin x64 LE": "@cloudflare/workerd-darwin-64",
   "linux arm64 LE": "@cloudflare/workerd-linux-arm64",
   "linux x64 LE": "@cloudflare/workerd-linux-64",
+  "linux x64 LE musl": "@cloudflare/workerd-linux-64-musl",
   "win32 x64 LE": "@cloudflare/workerd-windows-64",
   "win32 arm64 LE": "@cloudflare/workerd-windows-64",
 };
 
 const maybeExeExtension = process.platform === "win32" ? ".exe" : "";
+
+// Detects musl the same way npm does when it matches the "libc" field of the platform packages
+// (npm-install-checks), so that the package chosen here is the one npm installed.
+function isMusl(): boolean {
+  if (process.platform !== "linux") return false;
+  try {
+    const ldd = fs.readFileSync("/usr/bin/ldd", "utf8");
+    if (ldd.includes("musl")) return true;
+    if (ldd.includes("GNU C Library")) return false;
+  } catch {}
+  try {
+    const excludeNetwork = process.report.excludeNetwork;
+    process.report.excludeNetwork = true;
+    const report = process.report.getReport() as any;
+    process.report.excludeNetwork = excludeNetwork;
+    if (report?.header?.glibcVersionRuntime) return false;
+    return (report?.sharedObjects ?? []).some(
+      (lib: string) => lib.includes("libc.musl-") || lib.includes("ld-musl-")
+    );
+  } catch {
+    return false;
+  }
+}
 
 export function pkgAndSubpathForCurrentPlatform(): {
   pkg: string;
@@ -30,6 +54,7 @@ export function pkgAndSubpathForCurrentPlatform(): {
   let pkg: string;
   let subpath: string;
   let platformKey = `${process.platform} ${os.arch()} ${os.endianness()}`;
+  if (isMusl()) platformKey += " musl";
 
   if (platformKey in knownPackages) {
     pkg = knownPackages[platformKey];
