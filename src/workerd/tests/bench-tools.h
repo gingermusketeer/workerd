@@ -10,6 +10,10 @@
 
 #include <kj/test.h>
 
+namespace workerd::bench {
+using kj::uint;
+}  // namespace workerd::bench
+
 // Configure tcmalloc for deterministic benchmarks on Linux.
 // tcmalloc uses probabilistic heap sampling which can introduce variance in benchmark results.
 // WD_USE_TCMALLOC is defined when tcmalloc is enabled (Linux + use_tcmalloc flag).
