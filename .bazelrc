@@ -422,6 +422,27 @@ build:linux --copt="-fdata-sections" --host_copt="-fdata-sections"
 # any improvement beyond 8 threads (see https://reviews.llvm.org/D147493).
 build:linux --linkopt="-Wl,--threads=8"
 
+# musl builds for x86_64 (see build/musl/README.md). Only the target is musl: builds run on the glibc
+# host and build their exec tools for it.
+build:linux_musl --platforms=//build/platforms:linux_x86_64_musl
+# Keep musl outputs apart from glibc ones, which share the same CPU and compilation mode, so that
+# switching between them doesn't overwrite outputs.
+build:linux_musl --platform_suffix=musl
+# Link fully statically, as static PIEs, so musl binaries run on any Linux. V8's generator tools are
+# built for the target and run during the build, and tests run on the host, neither of which has
+# musl's dynamic loader. Rust's musl target links statically by default.
+# Without supports_dynamic_linker, libraries have no shared outputs, which couldn't link with
+# -static-pie.
+build:linux_musl --dynamic_mode=off --linkopt=-static-pie --features=-supports_dynamic_linker
+# musl lacks getcontext()/makecontext()/setcontext(), which KJ uses to start fibers (HTMLRewriter).
+build:linux_musl --linkopt='-l:libucontext.a'
+# musl sizes new thread stacks from PT_GNU_STACK (default 128 KiB); match glibc's usual 8 MiB.
+build:linux_musl --linkopt='-Wl,-z,stack-size=8388608'
+# tcmalloc's per-CPU caches register rseq for each thread and never unregister it. musl unmaps an
+# exiting detached thread's TLS, which holds the rseq area, before the thread is gone, so the kernel
+# faults updating it. Without rseq, tcmalloc uses per-thread caches.
+build:linux_musl --per_file_copt=external/tcmalloc@-DTCMALLOC_INTERNAL_PERCPU_USE_RSEQ=0
+
 #
 # Windows
 #

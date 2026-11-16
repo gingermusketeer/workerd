@@ -1,5 +1,32 @@
 package(default_visibility = ["//visibility:public"])
 
+# C library. Platforms without an explicit value are glibc (or not Linux).
+constraint_setting(
+    name = "libc",
+    default_constraint_value = ":glibc",
+)
+
+constraint_value(
+    name = "glibc",
+    constraint_setting = ":libc",
+)
+
+constraint_value(
+    name = "musl",
+    constraint_setting = ":libc",
+)
+
+# The target platform of musl builds (`--config=linux_musl`). They run on, and build their tools
+# for, the glibc host.
+platform(
+    name = "linux_x86_64_musl",
+    constraint_values = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        ":musl",
+    ],
+)
+
 constraint_setting(name = "sanitizer")
 
 constraint_value(

@@ -37,7 +37,33 @@ use_repo(
     rust_nightly_macos_aarch64 = "rust_macos_aarch64__aarch64-apple-darwin__nightly_tools",
 )
 
-register_toolchains("@rust_toolchains//:all")
+# x86_64 musl targets (`--config=linux_musl`), built by the glibc host's rustc. rules_rust gives gnu
+# and musl triples the same constraints, so this toolchain is also constrained on
+# //build/platforms:musl and registered ahead of @rust_toolchains//:all, whose gnu toolchains would
+# otherwise match musl platforms too.
+rust.repository_set(
+    name = "rust_linux_x86_64_musl",
+    allocator_library = "@rules_rust//ffi/rs:empty",
+    edition = "2024",
+    exec_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    exec_triple = "x86_64-unknown-linux-gnu",
+    extra_rustc_flags = ["-Ctarget-feature=+sse4.2,+pclmulqdq"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+        "@workerd//build/platforms:musl",
+    ],
+    target_triple = "x86_64-unknown-linux-musl",
+    versions = [RUST_STABLE_VERSION],
+)
+
+register_toolchains(
+    "@rust_toolchains//:rust_linux_x86_64_musl__x86_64-unknown-linux-musl__stable",
+    "@rust_toolchains//:all",
+)
 
 # rust-based lolhtml dependency, including the API header.
 # Presented as a separate repository to allow overrides.

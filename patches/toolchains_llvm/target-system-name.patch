@@ -1,0 +1,55 @@
+diff --git a/toolchain/cc_toolchain_config.bzl b/toolchain/cc_toolchain_config.bzl
+index 9cfb012..8734b75 100644
+--- a/toolchain/cc_toolchain_config.bzl
++++ b/toolchain/cc_toolchain_config.bzl
+@@ -225,6 +225,9 @@ def cc_toolchain_config(
+             None,
+         ),
+     }[target_os_arch_key]
++    if target_os == "linux" and target_system_name.endswith("-musl"):
++        target_libc = "musl"
++        abi_libc_version = "musl_unknown"
+ 
+     # Unfiltered compiler flags; these are placed at the end of the command
+     # line, so take precendence over any user supplied flags through --copts or
+diff --git a/toolchain/internal/configure.bzl b/toolchain/internal/configure.bzl
+index 410e182..0497eac 100644
+--- a/toolchain/internal/configure.bzl
++++ b/toolchain/internal/configure.bzl
+@@ -330,6 +330,7 @@ def llvm_config_impl(rctx):
+         target_settings_dict = rctx.attr.target_settings,
+         additional_include_dirs_dict = rctx.attr.cxx_builtin_include_directories,
+         stdlib_dict = rctx.attr.stdlib,
++        target_system_name_dict = rctx.attr.target_system_name,
+         cxx_standard_dict = rctx.attr.cxx_standard,
+         compile_flags_dict = rctx.attr.compile_flags,
+         conly_flags_dict = rctx.attr.conly_flags,
+@@ -670,6 +671,7 @@ def _cc_toolchain_str(
+         "wasip1-wasm32": "wasm32-wasip1",
+         "wasip1-wasm64": "wasm64-wasip1",
+     }[target_pair]
++    target_system_name = _dict_value(toolchain_info.target_system_name_dict, target_pair, target_system_name)
+ 
+     target_toolchain_root = toolchain_info.toolchain_root
+     if target_pair in toolchain_info.target_toolchain_roots_dict:
+diff --git a/toolchain/internal/repo.bzl b/toolchain/internal/repo.bzl
+index 5cbabd1..0740c25 100644
+--- a/toolchain/internal/repo.bzl
++++ b/toolchain/internal/repo.bzl
+@@ -190,6 +190,16 @@ _compiler_configuration_attrs = {
+                "({}); ".format(_target_pairs) +
+                "see documentation for bazel's create_cc_toolchain_config_info."),
+     ),
++    "target_system_name": attr.string_dict(
++        mandatory = False,
++        doc = ("Target triple, for each target OS and arch pair you want to support " +
++               "({}), ".format(_target_pairs) +
++               "passed to the compiler as `--target` and used to find the target's runtimes " +
++               "(`include/<triple>/c++/v1`, `lib/<triple>` and the resource directory's " +
++               "`lib/<triple>`). If unset, the GNU triple for the pair, for example " +
++               "`x86_64-unknown-linux-gnu`. Use `x86_64-unknown-linux-musl` with a musl sysroot " +
++               "and matching `target_toolchain_roots` to target musl."),
++    ),
+     "stdlib": attr.string_dict(
+         mandatory = False,
+         doc = ("stdlib implementation, for each target OS and arch pair you want to support " +

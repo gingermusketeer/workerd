@@ -102,9 +102,10 @@ cc_library(
     }),
     features = _NO_LIBCXX,
     tags = ["manual"],
-    # No clang-tidy is published by workerd-tools for Windows.
+    # No clang-tidy is published by workerd-tools for Windows. The plugin is loaded into the clang-tidy
+    # binary, so it must use the same C library, and the Linux binary is built against glibc.
     target_compatible_with = select({
-        "@platforms//os:linux": [],
+        "@platforms//os:linux": ["//build/platforms:glibc"],
         "@platforms//os:macos": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
@@ -116,7 +117,7 @@ cc_shared_library(
     features = _NO_LIBCXX,
     tags = ["manual"],
     target_compatible_with = select({
-        "@platforms//os:linux": [],
+        "@platforms//os:linux": ["//build/platforms:glibc"],
         "@platforms//os:macos": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),

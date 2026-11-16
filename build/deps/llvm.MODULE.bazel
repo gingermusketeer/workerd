@@ -5,7 +5,10 @@ bazel_dep(name = "toolchains_llvm", version = "1.12.0")
 single_version_override(
     module_name = "toolchains_llvm",
     patch_strip = 1,
-    patches = ["//:patches/toolchains_llvm/per-action-files.patch"],
+    patches = [
+        "//:patches/toolchains_llvm/per-action-files.patch",
+        "//:patches/toolchains_llvm/target-system-name.patch",
+    ],
 )
 
 # Chromium's sysroots, pared down to the C library, kernel headers and GCC runtime support.
@@ -63,6 +66,45 @@ sysroot(
     urls = ["https://commondatastorage.googleapis.com/chrome-linux-sysroot/278c36fe3a785d7f89fbe3f46956899a3bd49fe665f68dc667d6f626a951fcd6"],
 )
 
+# musl builds (`--config=linux_musl`, see build/musl/README.md) link against Alpine's musl and
+# LLVM's runtimes built for musl. build/musl/make-sysroot.sh makes both archives.
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "musl_sysroot_linux_x86_64",
+    build_file_content = """filegroup(
+    name = "sysroot",
+    srcs = ["."],
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "54940c1b27a387f4277c0872f1b744b7f6637cce5efbb7a1d7395767fcaaabcc",
+    urls = ["https://github.com/cloudflare/workerd-tools/releases/download/musl-sysroot-1/musl-sysroot-alpine3.23-x86_64.tar.xz"],
+)
+
+# Laid out like an LLVM distribution's target files, for toolchains_llvm's target_toolchain_roots.
+http_archive(
+    name = "llvm_runtimes_musl_linux_x86_64",
+    build_file_content = """filegroup(
+    name = "cxx_builtin_include",
+    srcs = [
+        "include/c++",
+        "include/x86_64-unknown-linux-musl",
+        "lib/clang/22/include",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "lib",
+    srcs = ["lib/clang/22/lib"] + glob(["lib/**/libc++*.a", "lib/**/libunwind.a"]),
+    visibility = ["//visibility:public"],
+)
+""",
+    sha256 = "758979006f67b90c5366c39e0472412d68c92769b54d5fe0b6dbe19a4c74d39b",
+    urls = ["https://github.com/cloudflare/workerd-tools/releases/download/musl-sysroot-1/llvm-runtimes-22.1.8-x86_64-linux-musl.tar.xz"],
+)
+
 # One toolchain per Linux CPU. exec_os and exec_arch make each download the Linux distribution
 # whatever the host is, so a macOS client can build on Linux remote executors (--config=bazelflare).
 llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
@@ -88,9 +130,38 @@ llvm.sysroot(
     label = "@sysroot_linux_aarch64//sysroot",
     targets = ["linux-aarch64"],
 )
-use_repo(llvm, "llvm_linux_aarch64", "llvm_linux_x86_64")
+
+# musl on x86_64: the x86_64 toolchain's compiler, with musl's triple, sysroot and runtimes. The
+# glibc toolchains have no libc constraint, so they also match musl platforms; this one is registered
+# first.
+llvm.toolchain(
+    name = "llvm_linux_x86_64_musl",
+    exec_arch = "x86_64",
+    exec_os = "linux",
+    llvm_version = "22.1.8",
+    target_system_name = {"linux-x86_64": "x86_64-unknown-linux-musl"},
+)
+llvm.toolchain_root(
+    name = "llvm_linux_x86_64_musl",
+    label = "@llvm_linux_x86_64_llvm//:BUILD.bazel",
+)
+llvm.target_toolchain_root(
+    name = "llvm_linux_x86_64_musl",
+    label = "@llvm_runtimes_musl_linux_x86_64//:BUILD.bazel",
+)
+llvm.extra_target_compatible_with(
+    name = "llvm_linux_x86_64_musl",
+    constraints = ["//build/platforms:musl"],
+)
+llvm.sysroot(
+    name = "llvm_linux_x86_64_musl",
+    label = "@musl_sysroot_linux_x86_64//:sysroot",
+    targets = ["linux-x86_64"],
+)
+use_repo(llvm, "llvm_linux_aarch64", "llvm_linux_x86_64", "llvm_linux_x86_64_llvm", "llvm_linux_x86_64_musl")
 
 register_toolchains(
+    "@llvm_linux_x86_64_musl//:all",
     "@llvm_linux_x86_64//:all",
     "@llvm_linux_aarch64//:all",
     "//build/tools/llvm:all",
