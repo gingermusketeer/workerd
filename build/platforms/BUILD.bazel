@@ -16,6 +16,12 @@ constraint_value(
     constraint_setting = ":libc",
 )
 
+# For toolchains that take target settings rather than constraints (rules_rust's).
+config_setting(
+    name = "glibc_setting",
+    constraint_values = [":glibc"],
+)
+
 # The target platform of musl builds (`--config=linux_musl`). They run on, and build their tools
 # for, the glibc host.
 platform(

@@ -131,9 +131,18 @@ llvm.sysroot(
     targets = ["linux-aarch64"],
 )
 
-# musl on x86_64: the x86_64 toolchain's compiler, with musl's triple, sysroot and runtimes. The
-# glibc toolchains have no libc constraint, so they also match musl platforms; this one is registered
-# first.
+# Keep the glibc toolchains away from musl platforms, so a musl build without a musl toolchain fails
+# rather than silently targeting glibc. Platforms are glibc unless they say otherwise.
+llvm.extra_target_compatible_with(
+    name = "llvm_linux_x86_64",
+    constraints = ["//build/platforms:glibc"],
+)
+llvm.extra_target_compatible_with(
+    name = "llvm_linux_aarch64",
+    constraints = ["//build/platforms:glibc"],
+)
+
+# musl on x86_64: the x86_64 toolchain's compiler, with musl's triple, sysroot and runtimes.
 llvm.toolchain(
     name = "llvm_linux_x86_64_musl",
     exec_arch = "x86_64",

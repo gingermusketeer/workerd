@@ -27,6 +27,9 @@ ALPINE_SYSROOT_VERSION=3.23
 # clang must be the same release, since its resource headers ship in the runtimes archive.
 LLVM_VERSION=22.1.8
 LLVM_SHA256=922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888
+# edge, for a clang of that release. The digest pins the image; the packages installed into it still
+# come from edge's repository at the time of the run.
+BUILD_IMAGE=docker.io/library/alpine:edge@sha256:020dfcbaaf4cc1078bf2d9c7ba31a8466e334061dcd2f248001d68f79e52c000
 
 mkdir -p "$OUT"
 ca=()
@@ -40,6 +43,6 @@ fi
   -e ALPINE_SYSROOT_VERSION="$ALPINE_SYSROOT_VERSION" \
   -e LLVM_VERSION="$LLVM_VERSION" \
   -e LLVM_SHA256="$LLVM_SHA256" \
-  docker.io/library/alpine:edge sh /make-sysroot-inner.sh
+  "$BUILD_IMAGE" sh /make-sysroot-inner.sh
 
 (cd "$OUT" && sha256sum ./*.tar.xz)

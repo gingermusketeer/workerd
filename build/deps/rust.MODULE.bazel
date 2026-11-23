@@ -24,6 +24,8 @@ rust.toolchain(
     },
     extra_target_triples = RUST_TARGET_TRIPLES,
     rustfmt_version = RUST_NIGHTLY_VERSION,
+    # The Linux toolchains here target gnu; keep them away from musl platforms (see below).
+    target_settings = ["@workerd//build/platforms:glibc_setting"],
     versions = [
         RUST_STABLE_VERSION,
         RUST_NIGHTLY_VERSION,
@@ -39,8 +41,7 @@ use_repo(
 
 # x86_64 musl targets (`--config=linux_musl`), built by the glibc host's rustc. rules_rust gives gnu
 # and musl triples the same constraints, so this toolchain is also constrained on
-# //build/platforms:musl and registered ahead of @rust_toolchains//:all, whose gnu toolchains would
-# otherwise match musl platforms too.
+# //build/platforms:musl.
 rust.repository_set(
     name = "rust_linux_x86_64_musl",
     allocator_library = "@rules_rust//ffi/rs:empty",

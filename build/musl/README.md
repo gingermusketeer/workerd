@@ -19,10 +19,11 @@ bazel test --config=linux_musl //...
   runs the x86_64 toolchain's compiler with musl's triple
   (`patches/toolchains_llvm/target-system-name.patch` lets a toolchain set it), a musl sysroot, and
   LLVM's runtimes built for musl: libc++, libc++abi, libunwind and compiler-rt's builtins. Like
-  the glibc toolchain, it links them statically. It is constrained on `//build/platforms:musl` and
-  registered ahead of the glibc toolchains, which have no libc constraint.
+  the glibc toolchain, it links them statically. It is constrained on `//build/platforms:musl`,
+  and the glibc toolchains on `//build/platforms:glibc`, so a musl platform never gets a glibc
+  toolchain.
 - **Rust**: a toolchain whose rustc runs on the glibc host and builds for the musl target
-  (`build/deps/rust.MODULE.bazel`), constrained and registered the same way.
+  (`build/deps/rust.MODULE.bazel`), constrained the same way.
 - **Static linking**: `--config=linux_musl` links every executable as a static PIE and builds no
   shared libraries. This is required, not just convenient: V8's generator tools (torque, mksnapshot,
   ...) are built for the target and run during the build, and tests run on the host, neither of
@@ -47,8 +48,10 @@ container (podman):
   that matches the toolchain's `llvm_version`, laid out like an LLVM release's target directories.
   It includes clang's resource headers, which toolchains_llvm takes from the same directory.
 
-The archives are built reproducibly. To update them, change the versions in `make-sysroot.sh`,
-run it, publish the archives, and update the URLs and hashes in `build/deps/llvm.MODULE.bazel`.
+The build image is pinned by digest and the tarballs are deterministic, but the Alpine packages
+are whatever the repositories hold when the script runs, so a later run can produce different
+archives. To update them, change the versions in `make-sysroot.sh`, run it, publish the archives,
+and update the URLs and hashes in `build/deps/llvm.MODULE.bazel`.
 Before they are published, pass their directory to Bazel with `--distdir`:
 
 ```sh
@@ -64,4 +67,6 @@ bazel build --config=linux_musl --distdir=$PWD/bazel-musl-dist //src/workerd/ser
 - The clang-tidy plugin (`//tools/clang-tidy:workerd-lint`) and its tests are incompatible with
   musl. The plugin is loaded into the clang-tidy binary published by workerd-tools, so it must use
   the same C library, and that binary is built against glibc.
-- Sanitizer and coverage builds with `--config=linux_musl` are untested.
+- Sanitizer and coverage builds are unsupported: the musl runtimes include compiler-rt's builtins
+  but not its sanitizer or profile runtimes. `--config=asan` and `--config=tsan` also set
+  `--platforms`, so they can't be combined with `--config=linux_musl`.
